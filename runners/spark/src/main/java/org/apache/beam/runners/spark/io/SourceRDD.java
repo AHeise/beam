@@ -24,6 +24,8 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
+
 import org.apache.beam.runners.spark.translation.SparkRuntimeContext;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.Source;
@@ -116,9 +118,13 @@ public class SourceRDD {
         private boolean finished = false;
         private boolean started = false;
         private boolean closed = false;
+        private WindowedValue<T> next;
 
         @Override
         public boolean hasNext() {
+          if (next != null) {
+            return true;
+          }
           try {
             if (!started) {
               started = true;
@@ -129,6 +135,9 @@ public class SourceRDD {
             if (finished) {
               // safely close the reader if there are no more elements left to read.
               closeIfNotClosed();
+            } else {
+              next = WindowedValue.timestampedValueInGlobalWindow(reader.getCurrent(),
+                      reader.getCurrentTimestamp());
             }
             return !finished;
           } catch (IOException e) {
@@ -139,8 +148,12 @@ public class SourceRDD {
 
         @Override
         public WindowedValue<T> next() {
-          return WindowedValue.timestampedValueInGlobalWindow(reader.getCurrent(),
-              reader.getCurrentTimestamp());
+          if (!hasNext()) {
+            throw new NoSuchElementException();
+          }
+          final WindowedValue<T> next = this.next;
+          this.next = null;
+          return next;
         }
 
         @Override
